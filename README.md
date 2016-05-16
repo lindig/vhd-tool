@@ -32,7 +32,11 @@ Example: incremental backup
 
 (This is a work in progress)
 
-When running VMs on a hypervisor like [XenServer](http://www.xenserver.org/), it's important to have a backup strategy for your important virtual disks. One possibility is to perform periodic disk snapshots and archive the "deltas" (or differences) between the new snapshot and the last.
+When running VMs on a hypervisor like
+[XenServer](http://www.xenserver.org/), it's important to have a backup
+strategy for your important virtual disks. One possibility is to perform
+periodic disk snapshots and archive the "deltas" (or differences)
+between the new snapshot and the last.
 
 First take a snapshot: this will be the first backup:
 ```

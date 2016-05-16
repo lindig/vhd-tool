@@ -193,6 +193,7 @@ let progress_cb =
 		last_percent := new_percent
 
 let _ =
+  Coverage.init "sparse_dd";
 	Vhd_lwt.File.use_unbuffered := true;
 	Xcp_service.configure ~options ();
 
@@ -374,4 +375,5 @@ let _ =
 	else Lwt_main.run t;
 	let time = Unix.gettimeofday () -. start in
 	debug "Time: %.2f seconds" time;
-	Progress.close ()
+  Progress.close ();
+  exit 0 (* important to trigger at_exit() hooks *)

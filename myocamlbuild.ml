@@ -1,5 +1,5 @@
 (* OASIS_START *)
-(* DO NOT EDIT (digest: a88d1b0f8e842257881898c980b9e1cd) *)
+(* DO NOT EDIT (digest: f7479278db71d9ecfd4bf91bf0a2a70f) *)
 module OASISGettext = struct
 (* # 22 "src/oasis/OASISGettext.ml" *)
 
@@ -607,10 +607,10 @@ end
 open Ocamlbuild_plugin;;
 let package_default =
   {
-     MyOCamlbuildBase.lib_ocaml = [];
+     MyOCamlbuildBase.lib_ocaml = [("profiling", ["profiling"], [])];
      lib_c = [("vhd-tool", "src", []); ("sparse_dd", "src", [])];
      flags = [];
-     includes = []
+     includes = [("src", ["profiling"])]
   }
   ;;
 

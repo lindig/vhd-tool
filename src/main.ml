@@ -245,6 +245,7 @@ let default_cmd =
 let cmds = [info_cmd; contents_cmd; get_cmd; create_cmd; check_cmd; serve_cmd; stream_cmd]
 
 let _ =
+  Coverage.init "vhd-tool";
   match Term.eval_choice default_cmd cmds with 
   | `Error _ -> exit 1
   | _ -> exit 0

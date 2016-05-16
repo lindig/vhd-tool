@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: 59091d3a878b9b72b98c132652e76c6b)
+# DO NOT EDIT (digest: 6432e5ee0181ce9b3845130098484942)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -14,6 +14,8 @@ true: annot, bin_annot
 ".git": not_hygienic
 "_darcs": -traverse
 "_darcs": not_hygienic
+# Library profiling
+"profiling/profiling.cmxs": use_profiling
 # Executable vhd-tool
 <src/main.{native,byte}>: use_libvhd-tool_stubs
 <src/main.{native,byte}>: pkg_cmdliner
@@ -35,6 +37,7 @@ true: annot, bin_annot
 <src/main.{native,byte}>: pkg_uri
 <src/main.{native,byte}>: pkg_vhd-format
 <src/main.{native,byte}>: pkg_vhd-format.lwt
+<src/main.{native,byte}>: use_profiling
 <src/main.{native,byte}>: custom
 # Executable sparse_dd
 <src/sparse_dd.{native,byte}>: use_libsparse_dd_stubs
@@ -63,6 +66,7 @@ true: annot, bin_annot
 <src/sparse_dd.{native,byte}>: pkg_xenstore.unix
 <src/sparse_dd.{native,byte}>: pkg_xenstore_transport
 <src/sparse_dd.{native,byte}>: pkg_xenstore_transport.unix
+<src/sparse_dd.{native,byte}>: use_profiling
 <src/*.ml{,i,y}>: pkg_cmdliner
 <src/*.ml{,i,y}>: pkg_cohttp
 <src/*.ml{,i,y}>: pkg_cohttp.lwt
@@ -88,6 +92,7 @@ true: annot, bin_annot
 <src/*.ml{,i,y}>: pkg_xenstore.unix
 <src/*.ml{,i,y}>: pkg_xenstore_transport
 <src/*.ml{,i,y}>: pkg_xenstore_transport.unix
+<src/*.ml{,i,y}>: use_profiling
 "src/sendfile64_stubs.c": pkg_cmdliner
 "src/sendfile64_stubs.c": pkg_cohttp
 "src/sendfile64_stubs.c": pkg_cohttp.lwt
@@ -113,6 +118,7 @@ true: annot, bin_annot
 "src/sendfile64_stubs.c": pkg_xenstore.unix
 "src/sendfile64_stubs.c": pkg_xenstore_transport
 "src/sendfile64_stubs.c": pkg_xenstore_transport.unix
+"src/sendfile64_stubs.c": use_profiling
 <src/sparse_dd.{native,byte}>: custom
 # OASIS_STOP
 <src/chunked.ml>: syntax_camlp4o, pkg_cstruct.syntax

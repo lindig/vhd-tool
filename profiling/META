@@ -1,0 +1,11 @@
+# OASIS_START
+# DO NOT EDIT (digest: 47667471b6c31da063f4b5c6647cba41)
+version = "0.7.8"
+description = ".vhd file manipulation"
+archive(byte) = "profiling.cma"
+archive(byte, plugin) = "profiling.cma"
+archive(native) = "profiling.cmxa"
+archive(native, plugin) = "profiling.cmxs"
+exists_if = "profiling.cma"
+# OASIS_STOP
+
