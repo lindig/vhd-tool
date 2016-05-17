@@ -53,6 +53,7 @@ distclean: clean
 
 # make coverage - prepares for building with coverage analysis
 # make uncover  - reverses the setup from "make coverage"
+# make report   - create coverage/index.html 
 
 coverage: _tags _tags.coverage 
 	test ! -f _tags.orig && mv _tags _tags.orig || true
@@ -61,5 +62,7 @@ coverage: _tags _tags.coverage
 uncover: _tags.orig
 	mv _tags.orig _tags
 
-.PHONY: coverage uncover
-	
+report:
+	bisect-ppx-report -I _build -html coverage /tmp/bisect-vhd-*out
+
+.PHONY: report coverage uncover

@@ -193,7 +193,7 @@ let progress_cb =
 		last_percent := new_percent
 
 let _ =
-  Coverage.init "sparse_dd";
+	Coverage.init "vhd-sparse-dd";
 	Vhd_lwt.File.use_unbuffered := true;
 	Xcp_service.configure ~options ();
 
