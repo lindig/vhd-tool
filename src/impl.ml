@@ -15,9 +15,9 @@
 open Common
 open Lwt
 
-module F = Vhd_format.F.From_file(Vhd_format_lwt.IO)
-module In = Vhd_format.F.From_input(Input)
-module Channel_In = Vhd_format.F.From_input(struct
+module F = Vhd.F.From_file(Vhd_lwt.IO)
+module In = Vhd.F.From_input(Input)
+module Channel_In = Vhd.F.From_input(struct
   include Lwt
   type fd = Channels.t
   let read c buf = c.Channels.really_read buf
@@ -50,7 +50,7 @@ let get _common filename key =
     let key = require "key" key in
     let t =
       Vhd_IO.openfile filename false >>= fun t ->
-      let result = Vhd_format.F.Vhd.Field.get t key in
+      let result = Vhd.F.Vhd.Field.get t key in
       Vhd_IO.close t >>= fun () ->
       return result in
     match Lwt_main.run t with
@@ -62,7 +62,7 @@ let get _common filename key =
     | Failure x ->
       `Error(true, x)
     | Not_found ->
-      `Error(true, Printf.sprintf "Unknown key. Known keys are: %s" (String.concat ", " Vhd_format.F.Vhd.Field.list))
+      `Error(true, Printf.sprintf "Unknown key. Known keys are: %s" (String.concat ", " Vhd.F.Vhd.Field.list))
 
 let info _common filename =
   try
@@ -70,10 +70,10 @@ let info _common filename =
     let t =
       Vhd_IO.openfile filename false >>= fun t ->
       let all = List.map (fun f ->
-        match Vhd_format.F.Vhd.Field.get t f with
+        match Vhd.F.Vhd.Field.get t f with
         | Some v -> [ f; v ]
         | None -> [ f; "<missing field>" ]
-      ) Vhd_format.F.Vhd.Field.list in
+      ) Vhd.F.Vhd.Field.list in
       print_table ["field"; "value"] all;
       return () in
     Lwt_main.run t;
@@ -86,11 +86,11 @@ let contents _common filename =
     let filename = require "filename" filename in
     let t =
       let open In in
-      Vhd_format_lwt.IO.openfile filename false >>= fun fd ->
+      Vhd_lwt.IO.openfile filename false >>= fun fd ->
       let rec loop = function
       | End -> return ()
       | Cons (hd, tl) ->
-        let open Vhd_format.F in
+        let open Vhd.F in
         begin match hd with
         | Fragment.Header _x ->
           Printf.printf "Header\n"
@@ -105,8 +105,8 @@ let contents _common filename =
         end;
         tl () >>= fun x ->
         loop x in
-      Vhd_format_lwt.IO.get_file_size filename >>= fun size ->
-      openstream (Some size) (Input.of_fd (Vhd_format_lwt.IO.to_file_descr fd)) >>= fun stream ->
+      Vhd_lwt.IO.get_file_size filename >>= fun size ->
+      openstream (Some size) (Input.of_fd (Vhd_lwt.IO.to_file_descr fd)) >>= fun stream ->
       loop stream in
     Lwt_main.run t;
     `Ok ()
@@ -144,7 +144,7 @@ let check common filename =
     let filename = require "filename" filename in
     let t =
       Vhd_IO.openchain ~path:common.path filename false >>= fun vhd ->
-      Vhd_format.F.Vhd.check_overlapping_blocks vhd;
+      Vhd.F.Vhd.check_overlapping_blocks vhd;
       return () in
     Lwt_main.run t;
     `Ok ()
@@ -175,10 +175,10 @@ let machine_progress_bar total_work =
 
 let no_progress_bar _ _ = ()
 
-let [@warning "-27"]
+let
   stream_human _common _ s _ _ ?(progress = no_progress_bar) () =
   let decimal_digits =
-    let open Vhd_format.F in
+    let open Vhd.F in
     (* How much space will we need for the sector numbers? *)
     let sectors = Int64.(shift_right (add s.size.total 511L) sector_shift) in
     let decimal_digits = int_of_float (ceil (log10 (Int64.to_float sectors))) in
@@ -192,20 +192,20 @@ let [@warning "-27"]
   fold_left (fun sector x ->
     Printf.printf "%s: %s\n"
       (padto ' ' decimal_digits (Int64.to_string sector))
-      (Vhd_format.Element.to_string x);
-    return (Int64.add sector (Vhd_format.Element.len x))
+      (Vhd.Element.to_string x);
+    return (Int64.add sector (Vhd.Element.len x))
   ) 0L s.elements >>= fun _ ->
   Printf.printf "# end of stream\n";
   return None
 
 let stream_nbd _common c s prezeroed _ ?(progress = no_progress_bar) () =
   let open Nbd_lwt_unix in
-  let c = { Nbd.Channel.read = c.Channels.really_read; write = c.Channels.really_write; close = c.Channels.close; is_tls = false } in
+  let c = { Nbd.Channel.read = c.Channels.really_read; write = c.Channels.really_write; close = c.Channels.close; } in
 
   Client.negotiate c "" >>= fun (server, _size, _flags) ->
   (* Work to do is: non-zero data to write + empty sectors if the
      target is not prezeroed *)
-  let total_work = let open Vhd_format.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
+  let total_work = let open Vhd.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
   let p = progress total_work in
 
   ( if not prezeroed then expand_empty s else return s ) >>= fun s ->
@@ -216,14 +216,14 @@ let stream_nbd _common c s prezeroed _ ?(progress = no_progress_bar) () =
       | `Sectors data ->
         Client.write server (Int64.mul sector 512L) [data] >>= begin
           function
-          | Ok () -> return Int64.(of_int (Cstruct.len data))
-          | Error _e -> fail (Failure "Got error from NBD library")
+          | `Ok () -> return Int64.(of_int (Cstruct.len data))
+          | `Error _e -> fail (Failure "Got error from NBD library")
         end
       | `Empty _n -> (* must be prezeroed *)
         assert prezeroed;
         return 0L
-      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd_format.Element.to_string x))) ) >>= fun work ->
-    let sector = Int64.add sector (Vhd_format.Element.len x) in
+      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd.Element.to_string x))) ) >>= fun work ->
+    let sector = Int64.add sector (Vhd.Element.len x) in
     let work_done = Int64.add work_done work in
     p work_done;
     return (sector, work_done)
@@ -235,7 +235,7 @@ let stream_nbd _common c s prezeroed _ ?(progress = no_progress_bar) () =
 let stream_chunked _common c s prezeroed _ ?(progress = no_progress_bar) () =
   (* Work to do is: non-zero data to write + empty sectors if the
      target is not prezeroed *)
-  let total_work = let open Vhd_format.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
+  let total_work = let open Vhd.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
   let p = progress total_work in
 
   ( if not prezeroed then expand_empty s else return s ) >>= fun s ->
@@ -253,8 +253,8 @@ let stream_chunked _common c s prezeroed _ ?(progress = no_progress_bar) () =
       | `Empty _n -> (* must be prezeroed *)
         assert prezeroed;
         return 0L
-      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd_format.Element.to_string x))) ) >>= fun work ->
-    let sector = Int64.add sector (Vhd_format.Element.len x) in
+      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd.Element.to_string x))) ) >>= fun work ->
+    let sector = Int64.add sector (Vhd.Element.len x) in
     let work_done = Int64.add work_done work in
     p work_done;
     return (sector, work_done)
@@ -270,7 +270,7 @@ let stream_chunked _common c s prezeroed _ ?(progress = no_progress_bar) () =
 let stream_raw _common c s prezeroed _ ?(progress = no_progress_bar) () =
   (* Work to do is: non-zero data to write + empty sectors if the
      target is not prezeroed *)
-  let total_work = let open Vhd_format.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
+  let total_work = let open Vhd.F in Int64.(add (add s.size.metadata s.size.copy) (if prezeroed then 0L else s.size.empty)) in
   let p = progress total_work in
 
   ( if not prezeroed then expand_empty s else return s ) >>= fun s ->
@@ -278,7 +278,7 @@ let stream_raw _common c s prezeroed _ ?(progress = no_progress_bar) () =
   fold_left (fun work_done x ->
     (match x with
       | `Copy(fd, sector_start, sector_len) ->
-        let fd = Vhd_format_lwt.IO.to_file_descr fd in
+        let fd = Vhd_lwt.IO.to_file_descr fd in
         Lwt_unix.LargeFile.lseek fd (Int64.mul 512L sector_start) Unix.SEEK_SET
         >>= fun (_: int64) ->
         c.Channels.copy_from fd (Int64.mul 512L sector_len)
@@ -304,8 +304,8 @@ let sha1_update_cstruct ctx buffer =
   let buf = buffer.Cstruct.buffer in
   let buffer' : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t = Bigarray.Array1.sub buf ofs len in
   (* XXX: need a better way to do this *)
-  (* let buffer'': (int,  Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t = Obj.magic buffer' in *)
-  Sha1.update_buffer ctx buffer'
+  let buffer'': (int,  Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t = Obj.magic buffer' in 
+  Sha1.update_buffer ctx buffer''
 
 module TarStream = struct
   type t = {
@@ -345,7 +345,7 @@ let stream_tar _common c s _ prefix ?(progress = no_progress_bar) () =
     Cstruct.set_uint8 zeroes i 0
   done;
   (* This undercounts by missing the tar headers and occasional empty sector *)
-  let total_work = let open Vhd_format.F in Int64.(add s.size.metadata s.size.copy) in
+  let total_work = let open Vhd.F in Int64.(add s.size.metadata s.size.copy) in
   let p = progress total_work in
 
   expand_copy s >>= fun s ->
@@ -416,19 +416,19 @@ let stream_tar _common c s _ prefix ?(progress = no_progress_bar) () =
       (* If n > block_size (in sectors) then we can omit empty blocks *)
       empty { state with next_counter = state.next_counter + 1 } Int64.(sub bytes (of_int block_size))
     end else write state bytes in
-  let module E = Vhd_format.Element in
+  let module E = Vhd.Element in
   fold_left (fun state x ->
     (match x with
       | `Sectors data ->
         input state data
       | `Empty n ->
         empty state (Int64.(mul n 512L))
-      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd_format.Element.to_string x))) ) >>= fun state ->
+      | _ -> fail (Failure (Printf.sprintf "unexpected stream element: %s" (Vhd.Element.to_string x))) ) >>= fun state ->
     let work = Int64.mul (E.len x) 512L in
     let work_done = Int64.add state.work_done work in
     p work_done;
     return { state with work_done }
-  ) (initial s.size.Vhd_format.F.total) s.elements >>= fun _ ->
+  ) (initial s.size.Vhd.F.total) s.elements >>= fun _ ->
   p total_work;
 
   return (Some total_work)
@@ -464,7 +464,7 @@ let serve_vhd_to_raw total_size c dest prezeroed progress _ _ =
   let p = ref None in
 
   let open Channel_In in
-  let open Vhd_format.F in
+  let open Vhd.F in
   let rec loop block_size_sectors_shift last_block blocks_seen = function
     | End -> return ()
     | Cons (Fragment.Header h, tl) -> tl () >>= loop h.Header.block_size_sectors_shift last_block blocks_seen
@@ -474,7 +474,7 @@ let serve_vhd_to_raw total_size c dest prezeroed progress _ _ =
       p := Some (progress total_size);
       tl () >>= loop block_size_sectors_shift last_block blocks_seen
     | Cons (Fragment.Block (offset, data), tl) ->
-      Vhd_format_lwt.IO.really_write dest (Int64.shift_left offset sector_shift) data >>= fun () ->
+      Vhd_lwt.IO.really_write dest (Int64.shift_left offset sector_shift) data >>= fun () ->
       let this_block = Int64.(shift_right offset block_size_sectors_shift) in
       let blocks_seen = if last_block <> this_block then Int64.succ blocks_seen else blocks_seen in
       (match !p with Some p -> p blocks_seen | None -> ());
@@ -543,7 +543,7 @@ let serve_tar_to_raw total_size c dest prezeroed progress expected_prefix ignore
             let this = Int64.(to_int (min remaining (of_int (Cstruct.len buffer)))) in
             let block = Cstruct.sub buffer 0 this in
             c.Channels.really_read block >>= fun () ->
-            Vhd_format_lwt.IO.really_write dest offset block >>= fun () ->
+            Vhd_lwt.IO.really_write dest offset block >>= fun () ->
             if not ignore_checksums then sha1_update_cstruct t.ctx block;
             let remaining = Int64.(sub remaining (of_int this)) in
             let offset = Int64.(add offset (of_int this)) in
@@ -600,7 +600,7 @@ let socket sockaddr =
   | Lwt_unix.ADDR_UNIX _ -> Unix.PF_UNIX in
   Lwt_unix.socket family Unix.SOCK_STREAM 0
 
-let colon = Re.Str.regexp_string ":"
+let colon = Re_str.regexp_string ":"
 
 let retry common retries f =
   let rec aux n =
@@ -622,24 +622,14 @@ let retry common retries f =
     specified, then the changes from it will will be returned. *)
 let make_stream common source relative_to source_format destination_format =
   match source_format, destination_format with
-  | "nbdhybrid", "raw" ->
-    begin match Re.Str.bounded_split colon source 4 with
-    | [ raw; nbd_server; export_name; size ] -> begin
-      let size = Int64.of_string size in
-      Vhd_format_lwt.IO.openfile raw false >>= fun raw ->
-      Nbd_input.raw raw nbd_server export_name size
-      end
-    | _ ->
-      fail (Failure (Printf.sprintf "Failed to parse nbdhybrid source: %s (expecting <raw_disk>:<nbd_server>:<export_name>:<size>" source))
-    end
   | "hybrid", "raw" ->
     (* expect source to be block_device:vhd *)
-    begin match Re.Str.bounded_split colon source 2 with
+    begin match Re_str.bounded_split colon source 2 with
     | [ raw; vhd ] ->
       let path = common.path @ [ Filename.dirname vhd ] in
       retry common 3 (fun () -> Vhd_IO.openchain ~path vhd false) >>= fun t ->
       Vhd_IO.close t >>= fun () ->
-      Vhd_format_lwt.IO.openfile raw false >>= fun raw ->
+      Vhd_lwt.IO.openfile raw false >>= fun raw ->
       ( match relative_to with None -> return None | Some f -> Vhd_IO.openchain ~path f false >>= fun t -> Vhd_IO.close t >>= fun () -> return (Some t) ) >>= fun from ->
       Hybrid_input.raw ?from raw t
     | _ ->
@@ -647,12 +637,12 @@ let make_stream common source relative_to source_format destination_format =
     end
   | "hybrid", "vhd" ->
     (* expect source to be block_device:vhd *)
-    begin match Re.Str.bounded_split colon source 2 with
+    begin match Re_str.bounded_split colon source 2 with
     | [ raw; vhd ] ->
       let path = common.path @ [ Filename.dirname vhd ] in
       retry common 3 (fun () -> Vhd_IO.openchain ~path vhd false) >>= fun t ->
       Vhd_IO.close t >>= fun () ->
-      Vhd_format_lwt.IO.openfile raw false >>= fun raw ->
+      Vhd_lwt.IO.openfile raw false >>= fun raw ->
       ( match relative_to with None -> return None | Some f -> Vhd_IO.openchain ~path f false >>= fun t -> Vhd_IO.close t >>= fun () -> return (Some t) ) >>= fun from ->
       Hybrid_input.vhd ?from raw t
     | _ ->
@@ -736,7 +726,7 @@ let write_stream common s destination _source_protocol destination_protocol prez
       let headers = match Uri.userinfo uri' with
         | None -> headers
         | Some x ->
-          begin match Re.Str.bounded_split_delim (Re.Str.regexp_string ":") x 2 with
+          begin match Re_str.bounded_split_delim (Re_str.regexp_string ":") x 2 with
           | [ user; pass ] ->
             let b = Cohttp.Auth.string_of_credential (`Basic (user, pass)) in
             Header.add headers "authorization" b
@@ -756,7 +746,7 @@ let write_stream common s destination _source_protocol destination_protocol prez
         if Code.is_success code then begin
           let advertises_nbd =
             let headers = Header.to_list (Cohttp.Response.headers x) in
-            let headers = List.map (fun (x, y) -> String.lowercase_ascii x, String.lowercase_ascii y) headers in
+            let headers = List.map (fun (x, y) -> String.lowercase x, String.lowercase y) headers in
             let te = "transfer-encoding" in
             List.mem_assoc te headers && (List.assoc te headers = "nbd") in
           if advertises_nbd
@@ -800,7 +790,7 @@ let write_stream common s destination _source_protocol destination_protocol prez
 
           Printf.printf "Time taken: %s\n" (hms (int_of_float time));
           Printf.printf "Physical data rate: %s/sec\n" (add_unit physical_rate);
-          let open Vhd_format.F in
+          let open Vhd.F in
           let speedup = Int64.(to_float s.size.total /. (to_float p)) in
           Printf.printf "Speedup: %.1f\n" speedup;
           Printf.printf "Virtual data rate: %s/sec\n" (add_unit (physical_rate *. speedup));
@@ -815,7 +805,7 @@ let stream_t common args ?(progress = no_progress_bar) () =
 
 let stream common args =
   try
-    Vhd_format_lwt.File.use_unbuffered := common.Common.unbuffered;
+    Vhd_lwt.File.use_unbuffered := common.Common.unbuffered;
 
     let progress_bar = match args with
     | { StreamCommon.progress = true; machine = true ; _} -> machine_progress_bar
@@ -852,27 +842,27 @@ let serve_nbd_to_raw common size c dest _ _ _ _ =
   let rec serve_requests () =
     c.Channels.really_read req >>= fun () ->
     match Request.unmarshal req with
-    | Error e -> fail e
-    | Ok request ->
+    | `Error e -> fail e
+    | `Ok request ->
       if common.Common.debug
       then Printf.fprintf stderr "%s\n%!" (Request.to_string request);
       begin match request.Request.ty with
       | Command.Write ->
         inblocks (fun offset subblock ->
           c.Channels.really_read subblock >>= fun () ->
-          Vhd_format_lwt.IO.really_write dest offset subblock
+          Vhd_lwt.IO.really_write dest offset subblock
         ) request >>= fun () ->
-        Reply.marshal rep { Reply.error = Ok (); handle = request.Request.handle };
+        Reply.marshal rep { Reply.error = `Ok (); handle = request.Request.handle };
         c.Channels.really_write rep
       | Command.Read ->
-        Reply.marshal rep { Reply.error = Ok (); handle = request.Request.handle };
+        Reply.marshal rep { Reply.error = `Ok (); handle = request.Request.handle };
         c.Channels.really_write rep >>= fun () ->
         inblocks (fun offset subblock ->
-          Vhd_format_lwt.IO.really_read dest offset subblock >>= fun () ->
+          Vhd_lwt.IO.really_read dest offset subblock >>= fun () ->
           c.Channels.really_write subblock
         ) request
       | _ ->
-        Reply.marshal rep { Reply.error = Error `EPERM; handle = request.Request.handle };
+        Reply.marshal rep { Reply.error = `Error `EPERM; handle = request.Request.handle };
         c.Channels.really_write rep
       end >>= fun () ->
       serve_requests () in
@@ -892,7 +882,7 @@ let serve_chunked_to_raw _ c dest _ _ _ _ =
         let this = Int32.(to_int (min (of_int twomib) remaining)) in
         let buf = if this < twomib then Cstruct.sub buffer 0 this else buffer in
         c.Channels.really_read buf >>= fun () ->
-        Vhd_format_lwt.IO.really_write dest offset buf >>= fun () ->
+        Vhd_lwt.IO.really_write dest offset buf >>= fun () ->
         let offset = Int64.(add offset (of_int this)) in
         let remaining = Int32.(sub remaining (of_int this)) in
         if remaining > 0l
@@ -923,14 +913,14 @@ let serve_raw_to_raw common size c dest _ progress _ _ =
     let block = Cstruct.sub buffer 0 rounded_n in
     begin
       if n <> rounded_n
-      then Vhd_format_lwt.IO.really_read dest offset block
+      then Vhd_lwt.IO.really_read dest offset block
       else Lwt.return ()
     end >>= fun () ->
     (* Create a cstruct that's an alias to the above block,
        but only as long as the amount of data we're expecting *)
     let block2 = Cstruct.sub block 0 n in
     c.Channels.really_read block2 >>= fun () ->
-    Vhd_format_lwt.IO.really_write dest offset block >>= fun () ->
+    Vhd_lwt.IO.really_write dest offset block >>= fun () ->
     let offset = Int64.(add offset (of_int n)) in
     let remaining = Int64.(sub remaining (of_int n)) in begin
       p Int64.(sub size remaining);
@@ -942,7 +932,7 @@ let serve_raw_to_raw common size c dest _ progress _ _ =
 
 let serve common_options source source_fd source_format source_protocol destination destination_fd destination_format destination_size prezeroed progress machine expected_prefix ignore_checksums =
   try
-    Vhd_format_lwt.File.use_unbuffered := common_options.Common.unbuffered;
+    Vhd_lwt.File.use_unbuffered := common_options.Common.unbuffered;
 
     let source_protocol = protocol_of_string (require "source-protocol" source_protocol) in
 
@@ -976,14 +966,14 @@ let serve common_options source source_fd source_format source_protocol destinat
           return c
         | Sockaddr s ->
           let sock = socket s in
-          Lwt_unix.bind sock s >>= fun () ->
+          Lwt_unix.bind sock s;
           Lwt_unix.setsockopt sock Unix.SO_REUSEADDR true;
           Lwt_unix.listen sock 1;
           Lwt_unix.accept sock >>= fun (fd, _) ->
           Channels.of_raw_fd fd >>= fun c ->
           return c
         | File path ->
-          let fd = Vhd_format_lwt.File.openfile path false 0 in
+          let fd = Vhd_lwt.File.openfile path false 0 in
           Channels.of_raw_fd (Lwt_unix.of_unix_file_descr fd)
         | _ -> failwith (Printf.sprintf "Not implemented: serving from source %s" source) ) >>= fun source_sock ->
       ( match destination_endpoint with
@@ -992,9 +982,9 @@ let serve common_options source source_fd source_format source_protocol destinat
               Lwt_unix.openfile path [ Unix.O_CREAT; Unix.O_RDONLY ] 0o0644 >>= fun fd ->
               Lwt_unix.close fd
             end else return () ) >>= fun () ->
-          Vhd_format_lwt.IO.openfile path true >>= fun fd ->
+          Vhd_lwt.IO.openfile path true >>= fun fd ->
           let size = match destination_size with
-            | None -> Vhd_format_lwt.File.get_file_size path
+            | None -> Vhd_lwt.File.get_file_size path
             | Some x -> x in
           if size=0L
           then fail (Failure "Non-zero size required (either a pre-existing destination file or specified via --destination-size on the command line)")
@@ -1008,8 +998,8 @@ let serve common_options source source_fd source_format source_protocol destinat
         | "vhd", NoProtocol -> serve_vhd_to_raw size
         | _, _ -> failwith (Printf.sprintf "Not implemented: receiving format %s via protocol %s" source_format (StreamCommon.string_of_protocol source_protocol)) in
       fn source_sock destination_fd prezeroed progress_bar expected_prefix ignore_checksums >>= fun () ->
-      let fd = Lwt_unix.unix_file_descr (Vhd_format_lwt.IO.to_file_descr destination_fd) in
-      (try Vhd_format_lwt.File.fsync fd; return () with _ -> fail (Failure "fsync failed")) in
+      let fd = Lwt_unix.unix_file_descr (Vhd_lwt.IO.to_file_descr destination_fd) in
+      (try Vhd_lwt.File.fsync fd; return () with _ -> fail (Failure "fsync failed")) in
     Lwt_main.run thread;
     `Ok ()
   with Failure x ->

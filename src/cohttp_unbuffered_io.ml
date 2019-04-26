@@ -83,7 +83,7 @@ let read_http_headers c =
   loop () >>= fun () ->
   return (Buffer.contents buf)
 
-let crlf = Re.Str.regexp_string "\r\n"
+let crlf = Re_str.regexp_string "\r\n"
 
 (* We assume read_line is only used to read the HTTP header *)
 let rec read_line ic = match ic.header_buffer, ic.header_buffer_idx with
@@ -94,7 +94,7 @@ let rec read_line ic = match ic.header_buffer, ic.header_buffer_idx with
 | Some buf, i when i < (String.length buf) ->
   begin
     try
-      let eol = Re.Str.search_forward crlf buf i in
+      let eol = Re_str.search_forward crlf buf i in
       let line = String.sub buf i (eol - i) in
       ic.header_buffer_idx <- eol + 2;
       return (Some line)

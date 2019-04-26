@@ -74,8 +74,8 @@ let options =
     , description )
   in
   [ ( "unbuffered"
-    , Arg.Bool (fun b -> Vhd_format_lwt.File.use_unbuffered := b)
-    , (fun () -> string_of_bool !Vhd_format_lwt.File.use_unbuffered)
+    , Arg.Bool (fun b -> Vhd_lwt.File.use_unbuffered := b)
+    , (fun () -> string_of_bool !Vhd_lwt.File.use_unbuffered)
     , "use unbuffered I/O via O_DIRECT" )
   ; ( "encryption-mode"
     , Arg.String (fun x -> encryption_mode := encryption_mode_of_string x)
@@ -203,7 +203,7 @@ let find_backend_device path =
     let link =
       Unix.readlink (Printf.sprintf "/sys/dev/block/%d:%d/device" major minor)
     in
-    match List.rev (Re.Str.split (Re.Str.regexp_string "/") link) with
+    match List.rev (Re_str.split (Re_str.regexp_string "/") link) with
     | id :: "xen" :: "devices" :: _ when startswith "vbd-" id ->
         let id = int_of_string (String.sub id 4 (String.length id - 4)) in
         with_xs (fun xs ->
@@ -212,7 +212,7 @@ let find_backend_device path =
               xs.Xs.read (Printf.sprintf "device/vbd/%d/backend" id)
             in
             let params = xs.Xs.read (Printf.sprintf "%s/params" backend) in
-            match Re.Str.split (Re.Str.regexp_string "/") backend with
+            match Re_str.split (Re_str.regexp_string "/") backend with
             | "local" :: "domain" :: bedomid :: _ ->
                 assert (self = bedomid) ;
                 Some params
@@ -257,7 +257,7 @@ let progress_cb =
       last_percent := new_percent
 
 let _ =
-  Vhd_format_lwt.File.use_unbuffered := true ;
+  Vhd_lwt.File.use_unbuffered := true ;
   Xcp_service.configure ~options () ;
   let src =
     match !src with
