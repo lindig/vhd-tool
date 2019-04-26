@@ -18,12 +18,29 @@
 open Lwt
 open Lwt_preemptive
 
-external _sendfile: Unix.file_descr -> Unix.file_descr -> int64 -> int64 = "stub_sendfile64"
+type handle
 
-let _sendfile from_fd to_fd len =
-  let from_fd = Lwt_unix.unix_file_descr from_fd in
-  let to_fd = Lwt_unix.unix_file_descr to_fd in
-  detach (_sendfile from_fd to_fd) len
+external _init: Unix.file_descr -> Unix.file_descr -> handle = "stub_init"
+external _cleanup: handle -> unit = "stub_cleanup"
+external _direct_copy: handle -> int64 -> int64 = "stub_direct_copy"
+
+let with_handle from_fd to_fd f =
+  let unix_from_fd = Lwt_unix.unix_file_descr from_fd in
+  let unix_to_fd = Lwt_unix.unix_file_descr to_fd in
+  let handle = _init unix_from_fd unix_to_fd in
+  Lwt.finalize
+    (fun () -> f handle)
+    (fun () ->
+      _cleanup handle;
+      Lwt.return_unit
+    )
+
+let _direct_copy handle _from_fd _to_fd len =
+  (* Atlhough the FD is set to blocking mode (by [with_blocking_fd]),
+   * the fcntl flags are only updated lazily, either by
+   * first call to an Lwt_unix IO function or [wrap_syscall].
+   * Perform `wrap_syscall` here to avoid EAGAIN *)
+  detach (_direct_copy handle) len
 
 let maybe_fdatasync stat to_fd =
   match stat.Lwt_unix.LargeFile.st_kind with
@@ -33,14 +50,19 @@ let maybe_fdatasync stat to_fd =
 
 (* The OS implementation can return short (e.g. Linux will stop at a 2GiB boundary).
    This function keeps copying until all the bytes are copied. *)
-let rec sendfile from_fd to_fd len =
-  (* sendfile requires sockets in non-blocking mode *)
+let direct_copy from_fd to_fd len =
+  (* direct_copy requires sockets in non-blocking mode *)
   let with_blocking_fd fd f =
     Lwt_unix.blocking fd
     >>= function
     | true -> f fd
     | false ->
       Lwt_unix.set_blocking fd true;
+      (* [set_blocking] sets the flags lazily,
+       * force them to be set by querying it *)
+      Lwt_unix.blocking fd >>= function
+      | false -> Lwt.fail_with "Failed to set FD to blocking mode"
+      | true ->
       Lwt.catch
         (fun () ->
           f fd
@@ -53,10 +75,10 @@ let rec sendfile from_fd to_fd len =
 
   let sync_limit = Int64.(mul 4L (mul 1024L 1024L)) in
 
-  let write from_fd to_fd to_write =
+  let write handle from_fd to_fd to_write =
     let rec loop remaining =
       if remaining > 0L then begin
-        _sendfile from_fd to_fd remaining
+        _direct_copy handle from_fd to_fd remaining
         >>= fun written ->
         loop (Int64.sub remaining written)
       end else return () in
@@ -72,18 +94,21 @@ let rec sendfile from_fd to_fd len =
     (fun from_fd ->
       with_blocking_fd to_fd
         (fun to_fd ->
-          Lwt_unix.LargeFile.fstat to_fd
-          >>= fun stat ->
-          let rec loop remaining =
-            if remaining > 0L then begin
-              let to_write = min sync_limit remaining in
-              write from_fd to_fd to_write
-              >>= fun written ->
-              maybe_fdatasync stat to_fd
-              >>= fun () ->
-              loop (Int64.sub remaining written)
-            end else return () in
-          loop len
+          with_handle from_fd to_fd
+            (fun handle ->
+              Lwt_unix.LargeFile.fstat to_fd
+              >>= fun stat ->
+              let rec loop remaining =
+                if remaining > 0L then begin
+                  let to_write = min sync_limit remaining in
+                  write handle from_fd to_fd to_write
+                  >>= fun written ->
+                  maybe_fdatasync stat to_fd
+                  >>= fun () ->
+                  loop (Int64.sub remaining written)
+                end else return () in
+              loop len
+            )
         )
     )
 
@@ -110,7 +135,7 @@ let of_raw_fd fd =
     return () in
   let skip _ = fail Impossible_to_seek in
   let copy_from from_fd len =
-    sendfile from_fd fd len
+    direct_copy from_fd fd len
     >>= fun () ->
     offset := Int64.(add !offset len);
     return len in
@@ -155,7 +180,7 @@ let of_ssl_fd fd ssl_legacy good_ciphersuites legacy_ciphersuites =
     return () in
   let skip _ = fail Impossible_to_seek in
   let copy_from from_fd len =
-    sendfile from_fd fd len
+    direct_copy from_fd fd len
     >>= fun () ->
     offset := Int64.(add !offset len);
     return len in

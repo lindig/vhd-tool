@@ -17,7 +17,7 @@ Executable "vhd-tool"
   Custom:             true
   Install:            false
   BuildDepends:       lwt, lwt.unix, lwt.preemptive, threads, vhd-format, vhd-format.lwt, cmdliner, nbd, nbd.lwt, uri, cohttp (>= 0.12.0), cohttp.lwt, tar, sha, sha.sha1, io-page.unix, threads, tapctl, re.str, cstruct.ppx
-  CSources:           sendfile64_stubs.c
+  CSources:           direct_copy_stubs.c
 
 Executable "sparse_dd"
   Build$:             flag(xenserver)
@@ -27,7 +27,7 @@ Executable "sparse_dd"
   Custom:             true
   Install:            false
   BuildDepends:       lwt, lwt.unix, lwt.preemptive, threads, vhd-format, vhd-format.lwt, cmdliner, nbd, nbd.lwt, uri, cohttp (>= 0.12.0), cohttp.lwt, xenstore, xenstore.client, xenstore.unix, xenstore_transport, xenstore_transport.unix, threads, tapctl, xcp, sha, sha.sha1, tar, io-page.unix, re.str, cstruct.ppx
-  CSources:           sendfile64_stubs.c
+  CSources:           direct_copy_stubs.c
 
 Executable get_vhd_vsize
   CompiledObject:     best
